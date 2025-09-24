@@ -87,11 +87,11 @@ PostgreSQL Instance (same server)
 
 | Software | Version | Notes |
 |----------|---------|-------|
-| PostgreSQL | 14.x | Docker or native installation |
-| Python | 3.12.x | For testing and validation scripts |
+| PostgreSQL | 16.10 | Docker or native installation |
+| Python | 3.12.3 | For testing and validation scripts |
 | psycopg2 | 2.9.x | Python PostgreSQL adapter |
-| LiteLLM | Latest | Proxy with Prisma ORM |
-| Open WebUI | Latest | Web interface |
+| LiteLLM | 1.77.3 | Proxy with Prisma ORM |
+| Open WebUI | 0.6.30 | Web interface |
 | Docker | 24.x | For containerized deployment |
 
 ### Installation
