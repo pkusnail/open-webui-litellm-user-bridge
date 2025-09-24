@@ -272,9 +272,6 @@ Expected output:
 
 ## 📚 Documentation
 
-- [Architecture Guide](docs/architecture.md)
-- [Implementation Guide](docs/implementation-guide.md)
-- [Experiment Report](docs/real-experiment-report.md)
 - [SQL Scripts](sql/) - Core sync triggers and distributed version
 
 
