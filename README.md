@@ -138,6 +138,105 @@ python src/test_real_update.py
 python src/test_real_delete.py
 ```
 
+### ⚠️ Migrating Existing Users
+
+If you have existing LiteLLM users **before** installing the sync bridge, they need to be migrated manually:
+
+#### Prerequisites for Migration
+- ✅ Sync bridge already installed and working
+- ✅ Existing users have **valid email addresses** in LiteLLM
+- ✅ Users without email will be skipped automatically
+
+#### Migration Steps
+
+1. **Download the migration script**:
+```bash
+# The migration script is included in the repository
+ls sql/migrate-existing-users.sql
+```
+
+2. **Run the migration**:
+```bash
+# Copy script to PostgreSQL container
+docker cp sql/migrate-existing-users.sql your_postgres_container:/tmp/
+
+# Execute migration
+docker exec your_postgres_container psql -U your_user -d litellm_db -f /tmp/migrate-existing-users.sql
+```
+
+3. **Check migration results**:
+```bash
+# Check migration status
+docker exec your_postgres_container psql -U your_user -d litellm_db -c "SELECT * FROM check_migration_status();"
+
+# View migration log  
+docker exec your_postgres_container psql -U your_user -d litellm_db -c "SELECT * FROM get_migration_audit_log(5);"
+```
+
+#### What the Migration Does
+- ✅ **Migrates users with email**: Only processes users that have valid email addresses
+- ✅ **Skips users without email**: Users with NULL or empty email are automatically skipped
+- ✅ **Creates proper mappings**: Generates `usr_` prefixed IDs and sync mappings  
+- ✅ **Handles team aliases**: Maps team information to display names
+- ✅ **Converts roles**: Maps LiteLLM roles to Open WebUI roles (proxy_admin → admin)
+- ✅ **Full audit trail**: Logs all operations for tracking and debugging
+
+#### Migration Output Example
+```bash
+# Expected migration results
+user_id         | user_email           | sync_status | error_message
+test_user_001   | user@example.com     | SUCCESS     | 
+admin_user_002  | admin@company.com    | SUCCESS     |
+
+# Post-migration status  
+metric                        | count
+Total LiteLLM Users          | 5
+Users with Email             | 3  
+Users without Email          | 2
+Already Synced Users         | 3
+Open WebUI Users (usr_ prefix) | 3
+```
+
+#### User Authentication in Open WebUI
+
+**After migration, how do users login to Open WebUI?**
+
+1. **Initial Login Method**:
+   - Users login with their **email address** as username
+   - **Initial password is set to their email address** for convenience
+   - Example: user `test@example.com` → password: `test@example.com`
+
+2. **First Login Process**:
+   ```
+   Username: test@example.com
+   Password: test@example.com  (initial password)
+   ```
+
+3. **Password Security**:
+   - ⚠️ Users should **change their password** after first login
+   - Open WebUI provides password change functionality in user settings
+   - For production environments, consider enforcing password change on first login
+
+4. **Password Verification Example**:
+   ```bash
+   # Verify password is set correctly (for testing)
+   docker exec your_postgres_container psql -U your_user -d webui_db -c "
+   SELECT id, email, 
+          CASE WHEN crypt(email, password) = password THEN 'Password = Email' 
+               ELSE 'Password ≠ Email' END as password_check
+   FROM auth WHERE id LIKE 'usr_%';"
+   ```
+
+5. **Alternative Authentication**:
+   - If SSO is configured, users can login through SSO instead
+   - OAuth/OIDC integration is supported for enterprise environments
+
+⚠️ **Important Notes**:
+- Users **without email** will be skipped and won't be able to login to Open WebUI
+- Migration is **idempotent** - safe to run multiple times  
+- Only **new users** are migrated on each run (existing mappings are preserved)
+- **Default password is the user's email** - users should change it after first login
+
 ## 📋 Configuration
 
 ### Database Connection
