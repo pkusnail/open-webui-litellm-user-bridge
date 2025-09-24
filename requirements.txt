@@ -1,0 +1,15 @@
+# LiteLLM WebUI Bridge - Python Dependencies
+# For testing and validation tools
+
+# PostgreSQL adapter
+psycopg2-binary==2.9.9
+
+# Optional: For JSON handling and utilities
+python-dateutil==2.8.2
+
+# Development and testing (optional)
+pytest==7.4.3
+pytest-asyncio==0.21.1
+
+# Note: Main functionality only requires PostgreSQL with dblink extension
+# Python dependencies are only needed for testing and validation scripts
