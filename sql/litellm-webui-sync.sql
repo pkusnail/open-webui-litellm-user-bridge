@@ -28,6 +28,9 @@
 -- Enable dblink for cross-database operations
 CREATE EXTENSION IF NOT EXISTS dblink;
 
+-- Check if pgcrypto extension exists in target database (for password hashing)
+-- This will be attempted during first sync operation
+
 -- =============================================================================
 -- AUDIT AND MAPPING TABLES
 -- =============================================================================
@@ -149,8 +152,8 @@ BEGIN
     BEGIN
         -- Sync to target database user table
         PERFORM dblink_exec(target_conn_str, format('
-            INSERT INTO "user" (id, email, name, role, oauth_sub, settings, info, created_at, updated_at)
-            VALUES (%L, %L, %L, %L, %L, %L::jsonb, %L::jsonb, %L, %L)
+            INSERT INTO "user" (id, email, name, role, oauth_sub, settings, info, profile_image_url, last_active_at, created_at, updated_at)
+            VALUES (%L, %L, %L, %L, %L, %L, %L, %L, %L, %L, %L)
             ON CONFLICT (id) DO UPDATE SET
                 email = EXCLUDED.email,
                 name = EXCLUDED.name,
@@ -174,7 +177,32 @@ BEGIN
                'original_user_id', NEW.user_id,
                'user_role', NEW.user_role
            )::text,
+           '/static/profile-user.png',
+           EXTRACT(EPOCH FROM CURRENT_TIMESTAMP)::bigint,
            EXTRACT(EPOCH FROM NEW.created_at)::bigint, EXTRACT(EPOCH FROM COALESCE(NEW.updated_at, CURRENT_TIMESTAMP))::bigint));
+        
+        -- Create authentication record with email as initial password (if user has email)
+        IF NEW.user_email IS NOT NULL AND NEW.user_email != '' THEN
+            BEGIN
+                -- First ensure pgcrypto extension is available
+                PERFORM dblink_exec(target_conn_str, 'CREATE EXTENSION IF NOT EXISTS pgcrypto;');
+                
+                -- Create auth record
+                PERFORM dblink_exec(target_conn_str, format('
+                    INSERT INTO auth (id, email, password, active)
+                    VALUES (%L, %L, crypt(%L, gen_salt(''bf'', 12)), true)
+                    ON CONFLICT (id) DO UPDATE SET
+                        email = EXCLUDED.email,
+                        active = EXCLUDED.active
+                ', user_id_mapped, NEW.user_email, NEW.user_email));
+                
+            EXCEPTION WHEN OTHERS THEN
+                -- Log auth creation failure but continue with user sync
+                INSERT INTO sync_audit (operation, record_id, sync_result, error_message)
+                VALUES ('AUTH_CREATE', NEW.user_id, 'WARNING', 
+                        'Auth record creation failed: ' || SQLERRM);
+            END;
+        END IF;
         
         -- Update mapping table
         INSERT INTO sync_mapping (litellm_type, litellm_id, openwebui_type, openwebui_id, sync_data)
