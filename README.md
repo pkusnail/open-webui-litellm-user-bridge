@@ -74,8 +74,8 @@ This bridge transforms **LiteLLM into the authoritative source** for all user ma
 
 ```
 PostgreSQL Instance (same server)
-├── Database: litellm_db      ← LiteLLM tables + triggers
-└── Database: openwebui_db    ← Open WebUI tables (sync target)
+├── Database: litellm      ← LiteLLM tables + sync triggers + audit tables
+└── Database: webui        ← Open WebUI tables (sync target)
 ```
 
 **Why same instance?**
@@ -102,13 +102,13 @@ PostgreSQL Instance (same server)
 1. **Use the sync script**:
 ```bash
 # Execute the SQL script on your LiteLLM database
-psql -h your-db-host -U your-user -d litellm_db -f sql/litellm-webui-sync.sql
+psql -h your-db-host -U your-user -d litellm -f sql/litellm-webui-sync.sql
 ```
 
 2. **Configure target database connection** (edit the script first):
 ```sql
 -- Update this line in the SQL script with your Open WebUI database details
-target_conn_str TEXT := 'host=your-host port=5432 dbname=openwebui_db user=your-user password=your-password';
+target_conn_str TEXT := 'host=your-host port=5432 dbname=webui user=your-user password=your-password';
 ```
 
 #### Option 2: Development Setup
@@ -161,16 +161,16 @@ ls sql/migrate-existing-users.sql
 docker cp sql/migrate-existing-users.sql your_postgres_container:/tmp/
 
 # Execute migration
-docker exec your_postgres_container psql -U your_user -d litellm_db -f /tmp/migrate-existing-users.sql
+docker exec your_postgres_container psql -U your_user -d litellm -f /tmp/migrate-existing-users.sql
 ```
 
 3. **Check migration results**:
 ```bash
 # Check migration status
-docker exec your_postgres_container psql -U your_user -d litellm_db -c "SELECT * FROM check_migration_status();"
+docker exec your_postgres_container psql -U your_user -d litellm -c "SELECT * FROM check_migration_status();"
 
 # View migration log  
-docker exec your_postgres_container psql -U your_user -d litellm_db -c "SELECT * FROM get_migration_audit_log(5);"
+docker exec your_postgres_container psql -U your_user -d litellm -c "SELECT * FROM get_migration_audit_log(5);"
 ```
 
 #### What the Migration Does
@@ -247,7 +247,7 @@ Both LiteLLM and Open WebUI must share the same PostgreSQL instance:
 
 ```sql
 -- Update connection string in litellm-webui-sync.sql
-target_conn_str TEXT := 'host=localhost port=5432 dbname=openwebui_db user=sync_user password=your_secure_password';
+target_conn_str TEXT := 'host=localhost port=5432 dbname=webui user=sync_user password=your_secure_password';
 ```
 
 **Connection Requirements:**
@@ -263,10 +263,10 @@ target_conn_str TEXT := 'host=localhost port=5432 dbname=openwebui_db user=sync_
 target_conn_str TEXT := 'host=localhost port=5432 dbname=webui user=webui password=webui';
 
 -- Local development
-target_conn_str TEXT := 'host=localhost port=5432 dbname=openwebui_dev user=dev_user password=dev_pass';
+target_conn_str TEXT := 'host=localhost port=5432 dbname=webui_dev user=dev_user password=dev_pass';
 
 -- Production with specific schema  
-target_conn_str TEXT := 'host=db.internal port=5432 dbname=production_webui user=sync_service password=complex_password';
+target_conn_str TEXT := 'host=db.internal port=5432 dbname=webui user=sync_service password=complex_password';
 ```
 
 
@@ -279,7 +279,7 @@ Create a dedicated sync user with minimal required permissions:
 CREATE USER sync_user WITH PASSWORD 'your_secure_password';
 
 -- Grant necessary permissions
-GRANT CONNECT ON DATABASE openwebui_db TO sync_user;
+GRANT CONNECT ON DATABASE webui TO sync_user;
 GRANT USAGE ON SCHEMA public TO sync_user;
 GRANT INSERT, UPDATE, DELETE ON TABLE "user" TO sync_user;
 GRANT INSERT, UPDATE, DELETE ON TABLE "group" TO sync_user;
