@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS sync_mapping (
 CREATE OR REPLACE FUNCTION sync_organization_to_group()
 RETURNS TRIGGER AS $$
 DECLARE 
-    target_conn_str TEXT := 'host=YOUR_HOST port=5432 dbname=YOUR_OPENWEBUI_DB user=YOUR_USER password=YOUR_PASSWORD';
+    target_conn_str TEXT := 'host=localhost port=5432 dbname=webui user=webui password=webui';
     group_id TEXT;
 BEGIN
     -- Generate group ID with prefix
@@ -91,7 +91,7 @@ BEGIN
                'model_spend', NEW.model_spend,
                'metadata', NEW.metadata
            )::text,
-           NEW.created_at, COALESCE(NEW.updated_at, CURRENT_TIMESTAMP)));
+           EXTRACT(EPOCH FROM NEW.created_at)::bigint, EXTRACT(EPOCH FROM COALESCE(NEW.updated_at, CURRENT_TIMESTAMP))::bigint));
         
         -- Update mapping table
         INSERT INTO sync_mapping (litellm_type, litellm_id, openwebui_type, openwebui_id, sync_data)
@@ -120,7 +120,7 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE FUNCTION sync_user_to_openwebui()
 RETURNS TRIGGER AS $$
 DECLARE 
-    target_conn_str TEXT := 'host=YOUR_HOST port=5432 dbname=YOUR_OPENWEBUI_DB user=YOUR_USER password=YOUR_PASSWORD';
+    target_conn_str TEXT := 'host=localhost port=5432 dbname=webui user=webui password=webui';
     user_id_mapped TEXT;
     display_name TEXT;
     user_role_mapped VARCHAR;
@@ -174,7 +174,7 @@ BEGIN
                'original_user_id', NEW.user_id,
                'user_role', NEW.user_role
            )::text,
-           NEW.created_at, COALESCE(NEW.updated_at, CURRENT_TIMESTAMP)));
+           EXTRACT(EPOCH FROM NEW.created_at)::bigint, EXTRACT(EPOCH FROM COALESCE(NEW.updated_at, CURRENT_TIMESTAMP))::bigint));
         
         -- Update mapping table
         INSERT INTO sync_mapping (litellm_type, litellm_id, openwebui_type, openwebui_id, sync_data)
@@ -203,7 +203,7 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE FUNCTION handle_organization_deletion()
 RETURNS TRIGGER AS $$
 DECLARE 
-    target_conn_str TEXT := 'host=YOUR_HOST port=5432 dbname=YOUR_OPENWEBUI_DB user=YOUR_USER password=YOUR_PASSWORD';
+    target_conn_str TEXT := 'host=localhost port=5432 dbname=webui user=webui password=webui';
     group_id TEXT;
 BEGIN
     group_id := 'grp_' || OLD.organization_id;
@@ -233,7 +233,7 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE FUNCTION handle_user_deletion()
 RETURNS TRIGGER AS $$
 DECLARE 
-    target_conn_str TEXT := 'host=YOUR_HOST port=5432 dbname=YOUR_OPENWEBUI_DB user=YOUR_USER password=YOUR_PASSWORD';
+    target_conn_str TEXT := 'host=localhost port=5432 dbname=webui user=webui password=webui';
     user_id_mapped TEXT;
 BEGIN
     user_id_mapped := 'usr_' || OLD.user_id;
