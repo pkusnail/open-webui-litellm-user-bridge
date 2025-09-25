@@ -33,6 +33,7 @@ This bridge transforms **LiteLLM into the authoritative source** for all user ma
 - **🔄 Real-time Sync**: PostgreSQL triggers ensure instant data synchronization
 - **👥 Multi-tenant Support**: Organization → Group, User → User mapping with team hierarchies  
 - **🔐 Role Management**: Automatic role conversion (proxy_admin → admin, etc.)
+- **🔑 API Key Sync**: Per-user model permissions via automatic API key synchronization
 - **📊 Audit Trail**: Complete operation logging with success/failure tracking
 - **🛡️ Data Integrity**: Transaction-safe operations with foreign key handling
 - **⚡ Zero Latency**: Trigger-based sync eliminates polling delays
@@ -56,8 +57,17 @@ This bridge transforms **LiteLLM into the authoritative source** for all user ma
 |---------|------------|--------------|
 | `LiteLLM_OrganizationTable` | `group` | `org_id` → `grp_{org_id}` |
 | `LiteLLM_UserTable` | `user` | `user_id` → `usr_{user_id}` |
+| `LiteLLM_VerificationToken` | `user.api_key` | Per-user API key mapping |
 | User Name | User Name | `{team_alias}-{user_alias}` |
 | `proxy_admin` | `admin` | Role conversion |
+
+### 🔑 API Key Sync Benefits
+
+With API key synchronization enabled:
+- **Per-User Model Access**: Each user only sees models they're authorized for
+- **Centralized Permission Management**: Control model access through LiteLLM
+- **Automatic Sync**: No manual configuration needed in Open WebUI
+- **Real-time Updates**: Model permissions update instantly when changed in LiteLLM
 
 ## 🚀 Quick Start
 
@@ -99,15 +109,21 @@ PostgreSQL Instance (same server)
 
 #### Option 1: Single SQL Script (Recommended)
 
-1. **Use the sync script**:
+1. **Install basic user sync**:
 ```bash
-# Execute the SQL script on your LiteLLM database
+# Execute the basic sync script on your LiteLLM database
 psql -h your-db-host -U your-user -d litellm -f sql/litellm-webui-sync.sql
 ```
 
-2. **Configure target database connection** (edit the script first):
+2. **Install API key sync extension** (optional, but recommended):
+```bash  
+# Add per-user model permissions via API key sync
+psql -h your-db-host -U your-user -d litellm -f sql/api-key-sync.sql
+```
+
+3. **Configure target database connection** (edit the scripts first):
 ```sql
--- Update this line in the SQL script with your Open WebUI database details
+-- Update this line in both SQL scripts with your Open WebUI database details
 target_conn_str TEXT := 'host=your-host port=5432 dbname=webui user=your-user password=your-password';
 ```
 
@@ -302,33 +318,353 @@ ELSE
 END IF;
 ```
 
-## 🔧 Usage
+## 🔧 LiteLLM API Usage Examples
+
+### Setting Up Your LiteLLM Environment
+
+Before creating users and API keys, ensure your LiteLLM proxy is running and accessible:
+
+```bash
+# Test LiteLLM connectivity (replace with your master key)
+export LITELLM_MASTER_KEY="your-master-key"  
+curl -H "Authorization: Bearer $LITELLM_MASTER_KEY" http://localhost:4000/health
+```
+
+### Managing Models
+
+#### 1. Add Models to LiteLLM
+
+```bash
+# Add a model that connects to your backend
+curl -X POST "http://localhost:4000/model/new" \
+  -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_name": "qwen3-omni-30b-thinking",
+    "litellm_params": {
+      "model": "openai/Qwen/Qwen3-Omni-30B-A3B-Thinking",
+      "api_base": "http://your-model-server:8013/v1",
+      "api_key": "dummy"
+    }
+  }'
+
+# Add another model for testing permissions
+curl -X POST "http://localhost:4000/model/new" \
+  -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_name": "gpt-4-turbo",
+    "litellm_params": {
+      "model": "gpt-4-turbo",
+      "api_key": "your-openai-key"
+    }
+  }'
+```
+
+#### 2. List Available Models
+
+```bash
+# View all models registered in LiteLLM
+curl -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+  "http://localhost:4000/v1/models"
+```
+
+### Managing Organizations and Teams
+
+#### 1. Create Organization
+
+```bash
+# Create an organization for multi-tenant isolation
+curl -X POST "http://localhost:4000/organization/new" \
+  -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "organization_alias": "Tech Company",
+    "models": ["qwen3-omni-30b-thinking", "gpt-4-turbo"]
+  }'
+```
+
+#### 2. Create Team within Organization
+
+```bash
+# Create a team with specific model access
+curl -X POST "http://localhost:4000/team/new" \
+  -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "team_alias": "AI Development Team",
+    "organization_id": "org_abc123",
+    "models": ["qwen3-omni-30b-thinking"]
+  }'
+```
+
+#### 3. Update Team Models
+
+```bash  
+# Add/remove models from a team
+curl -X POST "http://localhost:4000/team/update" \
+  -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "team_id": "team_xyz789",
+    "models": ["qwen3-omni-30b-thinking", "gpt-4-turbo"]
+  }'
+```
+
+### Managing Users
+
+#### 1. Create User
+
+```bash
+# Create a new user (will auto-sync to Open WebUI)
+curl -X POST "http://localhost:4000/user/new" \
+  -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_id": "user_john_doe",
+    "user_alias": "John Doe",
+    "user_email": "john.doe@company.com",
+    "user_role": "internal_user",
+    "team_id": "team_xyz789",
+    "models": ["qwen3-omni-30b-thinking"]
+  }'
+```
+
+#### 2. Update User Permissions
+
+```bash
+# Grant additional models to a user
+curl -X POST "http://localhost:4000/user/update" \
+  -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_id": "user_john_doe", 
+    "models": ["qwen3-omni-30b-thinking", "gpt-4-turbo"]
+  }'
+
+# Make user a proxy admin
+curl -X POST "http://localhost:4000/user/update" \
+  -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_id": "user_john_doe",
+    "user_role": "proxy_admin"
+  }'
+```
+
+### Managing API Keys (Critical for Per-User Model Access)
+
+#### 1. Generate API Key for User
+
+```bash
+# Create API key with specific model permissions (auto-syncs to Open WebUI)
+curl -X POST "http://localhost:4000/key/generate" \
+  -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_id": "user_john_doe",
+    "key_alias": "john_primary_key",
+    "models": ["qwen3-omni-30b-thinking"],
+    "duration": null
+  }'
+
+# Response will include the API key - this gets synced to Open WebUI automatically
+# {
+#   "key": "sk-abc123xyz789...",
+#   "user_id": "user_john_doe",
+#   "models": ["qwen3-omni-30b-thinking"]
+# }
+```
+
+#### 2. Generate Limited Permission Key
+
+```bash
+# Create API key with budget limits and specific models
+curl -X POST "http://localhost:4000/key/generate" \
+  -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_id": "user_jane_smith",
+    "key_alias": "jane_limited_key", 
+    "models": ["gpt-4-turbo"],
+    "max_budget": 100.0,
+    "duration": "30d",
+    "rpm_limit": 10
+  }'
+```
+
+#### 3. List User's API Keys
+
+```bash
+# View all API keys for a user
+curl -X GET "http://localhost:4000/key/info?user_id=user_john_doe" \
+  -H "Authorization: Bearer $LITELLM_MASTER_KEY"
+```
+
+#### 4. Delete API Key
+
+```bash
+# Revoke an API key (will also clear it from Open WebUI)
+curl -X POST "http://localhost:4000/key/delete" \
+  -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "keys": ["sk-abc123xyz789..."]
+  }'
+```
+
+### Testing Model Access
+
+#### 1. Test API Key Model Access
+
+```bash
+# Test what models a user can access
+export USER_API_KEY="sk-abc123xyz789..."
+curl -H "Authorization: Bearer $USER_API_KEY" \
+  "http://localhost:4000/v1/models"
+
+# Should only show models the user is authorized for
+# {
+#   "data": [
+#     {"id": "qwen3-omni-30b-thinking", "object": "model"}
+#   ]
+# }
+```
+
+#### 2. Test Model Completion
+
+```bash
+# Test actual model usage with user API key
+curl -X POST "http://localhost:4000/v1/chat/completions" \
+  -H "Authorization: Bearer $USER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "qwen3-omni-30b-thinking",
+    "messages": [
+      {"role": "user", "content": "Hello, how are you?"}
+    ]
+  }'
+```
+
+### Bulk Operations
+
+#### 1. Batch Create Users and API Keys
+
+```bash
+#!/bin/bash
+# Script to create multiple users with API keys
+
+USERS=(
+  "alice:alice@company.com:AI Team"
+  "bob:bob@company.com:Dev Team" 
+  "charlie:charlie@company.com:QA Team"
+)
+
+for user_data in "${USERS[@]}"; do
+  IFS=':' read -r username email team <<< "$user_data"
+  
+  # Create user
+  curl -X POST "http://localhost:4000/user/new" \
+    -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"user_id\": \"user_$username\",
+      \"user_alias\": \"$username\",
+      \"user_email\": \"$email\",
+      \"models\": [\"qwen3-omni-30b-thinking\"]
+    }"
+    
+  # Create API key for user  
+  curl -X POST "http://localhost:4000/key/generate" \
+    -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"user_id\": \"user_$username\",
+      \"key_alias\": \"${username}_key\",
+      \"models\": [\"qwen3-omni-30b-thinking\"]
+    }"
+    
+  echo "Created user: $username with email: $email"
+done
+```
+
+### Monitoring and Debugging
+
+#### 1. Check User Status
+
+```bash
+# Get detailed user information
+curl -X GET "http://localhost:4000/user/info?user_id=user_john_doe" \
+  -H "Authorization: Bearer $LITELLM_MASTER_KEY"
+```
+
+#### 2. View Spending and Usage
+
+```bash
+# Check user spending
+curl -X GET "http://localhost:4000/spend/users" \
+  -H "Authorization: Bearer $LITELLM_MASTER_KEY"
+```
+
+#### 3. Health and Model Status
+
+```bash
+# Check LiteLLM proxy health and model status
+curl -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+  "http://localhost:4000/health"
+```
+
+## 📊 Usage
 
 ### Monitoring Sync Status
 
 ```sql
--- Check sync statistics
+-- Check basic sync statistics
 SELECT * FROM check_real_sync_status();
+
+-- Check API key sync status (if API key sync is installed)
+SELECT * FROM check_api_key_sync_status();
 ```
 
 ### View Audit Logs
 
 ```sql
--- Recent sync operations
+-- Recent sync operations (all types)
 SELECT operation, record_id, sync_result, created_at 
 FROM sync_audit 
 ORDER BY created_at DESC 
 LIMIT 10;
+
+-- API key sync audit logs specifically
+SELECT * FROM get_api_key_sync_audit_log(5);
 ```
 
 ### Check Mapping Relationships
 
 ```sql
--- View all active mappings
-SELECT litellm_type, litellm_id, openwebui_type, openwebui_id 
+-- View all active mappings (users, organizations, API keys)
+SELECT litellm_type, litellm_id, openwebui_type, openwebui_id, sync_data
 FROM sync_mapping 
 ORDER BY litellm_type, litellm_id;
+
+-- Check specific user's API key mapping
+SELECT * FROM sync_mapping 
+WHERE litellm_type = 'api_key' 
+  AND openwebui_id = 'usr_your_user_id';
 ```
+
+### Verify API Key Sync Installation
+
+```sql
+-- Test API key sync installation
+SELECT test_api_key_sync_installation();
+
+-- Check if triggers are active
+SELECT schemaname, tablename, trigger_name 
+FROM pg_trigger t
+JOIN pg_class c ON t.tgrelid = c.oid
+JOIN pg_namespace n ON c.relnamespace = n.oid
+WHERE trigger_name LIKE '%api_key%';
 
 ## 🧪 Testing
 
